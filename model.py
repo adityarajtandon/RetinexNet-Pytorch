@@ -15,8 +15,8 @@ def concat(layers):
     return torch.cat(layers, dim=1) 
 
 class DecomNet(nn.Module):
-    def init(self,layer_num,channel=64,kernel_size=3):
-        super(DecomNet, self).init()
+    def __init__(self,layer_num,channel=64,kernel_size=3):
+        super(DecomNet, self).__init__()
         self.layer_num = layer_num
         self.shallow_feature_extraction=nn.Conv2d(4,channel,kernel_size=kernel_size*3,padding=kernel_size//2)
         self.activated_layers = nn.ModuleList([nn.Conv2d(channel,channel,kernel_size=kernel_size,padding=kernel_size//2) for i in range(layer_num)])
