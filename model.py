@@ -204,6 +204,7 @@ class LowlightEnhance(nn.Module):
                 raise ValueError(f"Unknown training phase: {train_phase}")
 
             # Save the results
+            print(f"result_1 shape: {result_1.shape}, result_2 shape: {result_2.shape}")
             save_images(os.path.join(sample_dir, f'eval_{train_phase}_{idx + 1}_{epoch_num}.png'), result_1, result_2)
 
 

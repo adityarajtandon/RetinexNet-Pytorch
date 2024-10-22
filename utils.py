@@ -40,37 +40,39 @@ def save_images(filepath, result_1, result_2=None):
     # Detach tensors and convert to numpy if they are still PyTorch tensors
     if isinstance(result_1, torch.Tensor):
         result_1 = result_1.detach().cpu().numpy()
-    if isinstance(result_2, torch.Tensor):
+    if result_2 is not None and isinstance(result_2, torch.Tensor):
         result_2 = result_2.detach().cpu().numpy()
 
-    # Squeeze dimensions to remove extra single dimensions
+    # Squeeze to remove extra single dimensions, such as batch size 1
     result_1 = np.squeeze(result_1)
-
     if result_2 is not None:
         result_2 = np.squeeze(result_2)
-        # Ensure both arrays have the same number of dimensions
-        if result_1.ndim == 2:
-            result_1 = np.expand_dims(result_1, axis=-1)  # Grayscale image
-        if result_2.ndim == 2:
-            result_2 = np.expand_dims(result_2, axis=-1)  # Grayscale image
 
-        # Concatenate result_1 and result_2 if result_2 is provided
+    # Transpose tensors from (channels, height, width) to (height, width, channels)
+    if result_1.ndim == 3 and result_1.shape[0] in [1, 3]:  # (channels, height, width)
+        result_1 = np.transpose(result_1, (1, 2, 0))
+    if result_2 is not None and result_2.ndim == 3 and result_2.shape[0] in [1, 3]:
+        result_2 = np.transpose(result_2, (1, 2, 0))
+
+    # If result_2 exists, concatenate along the width (axis=1)
+    if result_2 is not None:
         cat_image = np.concatenate([result_1, result_2], axis=1)
     else:
-        # Use only result_1 if result_2 is None
         cat_image = result_1
 
-    # Ensure the image is in a valid format for PIL (Height x Width x Channels)
-    if cat_image.ndim == 2:  # If it's still grayscale
-        cat_image = np.expand_dims(cat_image, axis=-1)  # Add a channel dimension
+    # If grayscale (single channel), add a channel dimension for PIL compatibility
+    if cat_image.ndim == 2:  # For pure grayscale images
+        cat_image = np.expand_dims(cat_image, axis=-1)
 
-    # Convert to uint8, clip values between 0 and 255, and save as PNG
-    cat_image = np.clip(cat_image * 255.0, 0, 255.0).astype('uint8')
+    # Convert to uint8 by scaling if necessary
+    cat_image = np.clip(cat_image * 255.0, 0, 255.0).astype(np.uint8)
 
-    # Check if the image has a single channel or 3 channels
-    if cat_image.shape[-1] == 1:  # Grayscale
-        cat_image = np.squeeze(cat_image, axis=-1)  # Remove the channel dimension for saving
+    # Squeeze again if it's a grayscale image (shape: height, width, 1)
+    if cat_image.shape[-1] == 1:
+        cat_image = np.squeeze(cat_image, axis=-1)
 
-    # Convert numpy array to image and save
+    # Convert the NumPy array to a PIL Image and save it
     im = Image.fromarray(cat_image)
     im.save(filepath, 'png')
+
+    print(f"Image saved to {filepath}")
