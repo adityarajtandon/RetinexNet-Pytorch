@@ -31,7 +31,7 @@ class DecomNet(nn.Module):
         self.recon_layers = nn.Conv2d(channel, 4, kernel_size=kernel_size, padding=kernel_size//2)
 
     def forward(self, input_im):
-        print(f"{input_im.shape}")
+        
         input_max, _ = torch.max(input_im, dim=1, keepdim=True)
         # print(f"Input max shape: {input_max.shape}")
         input_im = concat([input_im, input_max])
@@ -179,6 +179,9 @@ class LowlightEnhance(nn.Module):
 
   
     def evaluate(self, epoch_num, eval_low_data, sample_dir, train_phase):
+        # Determine the appropriate device (GPU if available, otherwise CPU)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         print(f"[*] Evaluating for phase {train_phase} / epoch {epoch_num}...")
 
         for idx, input_low_eval in enumerate(eval_low_data):
@@ -193,15 +196,20 @@ class LowlightEnhance(nn.Module):
                 raise ValueError(f"Unexpected input shape: {input_low_eval.shape}")
 
             # Convert to a PyTorch tensor and add a batch dimension [batch_size, channels, height, width]
-            input_low_eval = torch.from_numpy(np.expand_dims(input_low_eval, axis=0)).float()
+            input_low_eval = torch.from_numpy(np.expand_dims(input_low_eval, axis=0)).float().to(device)
 
             # Process based on the training phase
-            if train_phase == "Decom":
-                result_1, result_2 = self(input_low_eval, input_low_eval)[:2]
-            elif train_phase == "Relight":
-                result_1, result_2 = self(input_low_eval, input_low_eval)[2:]
-            else:
-                raise ValueError(f"Unknown training phase: {train_phase}")
+            with torch.no_grad():
+                if train_phase == "Decom":
+                    result_1, result_2 = self(input_low_eval, input_low_eval)[:2]
+                elif train_phase == "Relight":
+                    result_1, result_2 = self(input_low_eval, input_low_eval)[2:4]
+                else:
+                    raise ValueError(f"Unknown training phase: {train_phase}")
+
+            # Move results back to CPU for saving
+            result_1 = result_1.cpu().numpy().squeeze(0)
+            result_2 = result_2.cpu().numpy().squeeze(0)
 
             # Save the results
             print(f"result_1 shape: {result_1.shape}, result_2 shape: {result_2.shape}")
@@ -213,14 +221,16 @@ class LowlightEnhance(nn.Module):
         optimizer = optim.Adam(self.parameters(), lr=lr[0])
 
         print(f"[*] Start training for phase {train_phase}.")
-
         start_time = time.time()
         image_id = 0
 
+        # Move the model to the correct device
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.to(device)
+
         for epoch in range(epoch):
-            self.lr=lr[epoch]
+            self.lr = lr[epoch]
             for batch_id in range(len(train_low_data) // batch_size):
-                
                 # Generate data for a batch
                 batch_input_low = torch.zeros(batch_size, 3, patch_size, patch_size)
                 batch_input_high = torch.zeros(batch_size, 3, patch_size, patch_size)
@@ -233,17 +243,24 @@ class LowlightEnhance(nn.Module):
                     rand_mode = random.randint(0, 7)
                     batch_input_low[patch_id, :, :, :] = torch.from_numpy(data_augmentation(train_low_data[image_id][x:x + patch_size, y:y + patch_size, :], rand_mode).copy().transpose(2, 0, 1)).float()
                     batch_input_high[patch_id, :, :, :] = torch.from_numpy(data_augmentation(train_high_data[image_id][x:x + patch_size, y:y + patch_size, :], rand_mode).copy().transpose(2, 0, 1)).float()
-                    
+
                     image_id = (image_id + 1) % len(train_low_data)
                     if image_id == 0:
                         tmp = list(zip(train_low_data, train_high_data))
                         random.shuffle(list(tmp))
                         train_low_data, train_high_data = zip(*tmp)
 
+                # Move inputs to the appropriate device
+                batch_input_low = batch_input_low.to(device)
+                batch_input_high = batch_input_high.to(device)
+
                 optimizer.zero_grad()
-                
+
+                # Forward pass through the model
                 output_R_low, output_I_low, output_I_delta, output_S, R_high, I_high_3, I_low, I_high, I_delta = self(batch_input_low, batch_input_high)
-                loss_Decom, loss_Relight = self.loss(batch_input_low, batch_input_high, output_R_low, output_I_low, output_I_delta, output_S, R_high, I_high_3,I_low, I_high, I_delta)
+
+                # Compute losses
+                loss_Decom, loss_Relight = self.loss(batch_input_low, batch_input_high, output_R_low, output_I_low, output_I_delta, output_S, R_high, I_high_3, I_low, I_high, I_delta)
 
                 # Choose which loss to backpropagate depending on the phase
                 if train_phase == "Decom":
@@ -260,6 +277,7 @@ class LowlightEnhance(nn.Module):
                 self.evaluate(epoch + 1, eval_low_data, sample_dir, train_phase)
                 self.save_checkpoint(ckpt_dir, f"RetinexNet-{train_phase}", epoch)
 
+
     def save_checkpoint(self, ckpt_dir, model_name, epoch):
         if not os.path.exists(ckpt_dir):
             os.makedirs(ckpt_dir)
@@ -268,7 +286,7 @@ class LowlightEnhance(nn.Module):
         print(f"[*] Saving model {model_name} at {checkpoint_path}")
         
     def test(self, test_low_data, test_high_data, test_low_data_names, save_dir, decom_flag, device='cuda'):
-    # Set model to evaluation mode and move it to the appropriate device
+        # Set model to evaluation mode and move it to the appropriate device
         self.to(device)
         self.eval()
 
@@ -286,12 +304,29 @@ class LowlightEnhance(nn.Module):
             suffix = name[name.find('.') + 1:]
             name = name[:name.find('.')]
 
-            # Prepare input data (assuming test_low_data is a numpy array, convert it to PyTorch tensor)
-            input_low_test = torch.from_numpy(np.expand_dims(test_low_data[idx], axis=0)).float().to(device)
+            # Load input data (assuming test_low_data is a numpy array)
+            input_low_test = test_low_data[idx]
+
+            # Check if the input is grayscale or RGB
+            if len(input_low_test.shape) == 2:  # Grayscale image
+                # Expand dimensions to make it [H, W, C=1]
+                input_low_test = np.expand_dims(input_low_test, axis=-1)  # Shape: [H, W, 1]
+                input_low_test = np.transpose(input_low_test, (2, 0, 1))  # Shape: [1, H, W]
+            elif len(input_low_test.shape) == 3:  # RGB image
+                input_low_test = np.transpose(input_low_test, (2, 0, 1))  # Shape: [3, H, W]
+            else:
+                raise ValueError(f"Unexpected input shape: {input_low_test.shape}")
+
+            # Convert to PyTorch tensor and add batch dimension [batch_size, channels, height, width]
+            input_low_test = torch.from_numpy(np.expand_dims(input_low_test, axis=0)).float().to(device)  # Shape: [1, C, H, W]
+
+            # Add a channel for the maximum intensity
+            #input_max = torch.max(input_low_test, dim=1, keepdim=True)[0]  # Get max along channel axis, shape: [1, 1, H, W]
+            #input_low_test = torch.cat([input_max, input_low_test], dim=1)  # Concatenate along the channel axis, shape: [1, 4, H, W]
 
             # Forward pass through the model (no gradient calculation required during testing)
             with torch.no_grad():
-                R_low, I_low, I_delta, S = self(input_low_test, input_low_test)
+                R_low, I_low, I_delta, S = self(input_low_test, input_low_test)[:4]
 
             # Convert outputs back to CPU numpy arrays for saving
             R_low = R_low.cpu().numpy().squeeze(0)
@@ -304,10 +339,9 @@ class LowlightEnhance(nn.Module):
                 save_images(os.path.join(save_dir, f"{name}_R_low.{suffix}"), R_low)
                 save_images(os.path.join(save_dir, f"{name}_I_low.{suffix}"), I_low)
                 save_images(os.path.join(save_dir, f"{name}_I_delta.{suffix}"), I_delta)
-            
-            save_images(os.path.join(save_dir, f"{name}_S.{suffix}"), S)
-        
-        print(f"[*] Testing complete. Images saved in {save_dir}")
 
+            save_images(os.path.join(save_dir, f"{name}_S.{suffix}"), S)
+
+        print(f"[*] Testing complete. Images saved in {save_dir}")
 
 

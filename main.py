@@ -17,14 +17,14 @@ parser = argparse.ArgumentParser(description='')
 
 parser.add_argument('--use_gpu', dest='use_gpu', type=int, default=1, help='gpu flag, 1 for GPU and 0 for CPU')
 parser.add_argument('--gpu_idx', dest='gpu_idx', default="0", help='GPU idx')
-parser.add_argument('--gpu_mem', dest='gpu_mem', type=float, default=0.9, help="0 to 1, gpu memory usage")
+parser.add_argument('--gpu_mem', dest='gpu_mem', type=float, default=0.7, help="0 to 1, gpu memory usage")
 parser.add_argument('--phase', dest='phase', default='train', help='train or test')
 
 parser.add_argument('--epoch', dest='epoch', type=int, default=100, help='number of total epoches')
 parser.add_argument('--batch_size', dest='batch_size', type=int, default=16, help='number of samples in one batch')
 parser.add_argument('--patch_size', dest='patch_size', type=int, default=48, help='patch size')
 parser.add_argument('--start_lr', dest='start_lr', type=float, default=0.001, help='initial learning rate for adam')
-parser.add_argument('--eval_every_epoch', dest='eval_every_epoch', default=1, help='evaluating and saving checkpoints every #  epoch')
+parser.add_argument('--eval_every_epoch', dest='eval_every_epoch', default=20, help='evaluating and saving checkpoints every #  epoch')
 parser.add_argument('--checkpoint_dir', dest='ckpt_dir', default='./checkpoint', help='directory for checkpoints')
 parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help='directory for evaluating outputs')
 
@@ -57,7 +57,7 @@ def lowlight_train(LowlightEnhance, device):
         train_low_data.append(low_im)
         high_im = load_images(train_high_data_names[idx])
         train_high_data.append(high_im)
-    print(f"low image shape :{low_im.shape}")
+    #print(f"low image shape :{low_im.shape}")
     eval_low_data = []
     eval_high_data = []
 
@@ -72,60 +72,55 @@ def lowlight_train(LowlightEnhance, device):
     LowlightEnhance.train_model(train_low_data, train_high_data, eval_low_data, batch_size=args.batch_size, patch_size=args.patch_size, epoch=args.epoch, lr=lr, sample_dir=args.sample_dir, ckpt_dir=os.path.join(args.ckpt_dir, 'Relight'), eval_every_epoch=args.eval_every_epoch, train_phase="Relight")
 
 
+# def lowlight_test(LowlightEnhance, device):
+#     if args.test_dir == None:
+#         print("[!] please provide --test_dir")
+#         exit(0)
+
+#     if not os.path.exists(args.save_dir):
+#         os.makedirs(args.save_dir)
+
+#     test_low_data_name = glob(os.path.join(args.test_dir) + '/*.*')
+#     test_low_data = []
+#     test_high_data = []
+#     for idx in range(len(test_low_data_name)):
+#         test_low_im = load_images(test_low_data_name[idx])
+#         test_low_data.append(test_low_im)
+
+#     LowlightEnhance.test(test_low_data, test_high_data, test_low_data_name, save_dir=args.save_dir, decom_flag=args.decom)
+
 def lowlight_test(LowlightEnhance, device):
-    if args.test_dir == None:
-        print("[!] please provide --test_dir")
+    if args.test_dir is None:
+        print("[!] Please provide --test_dir")
         exit(0)
 
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
-    test_low_data_name = glob(os.path.join(args.test_dir) + '/*.*')
+  # Load the saved checkpoint before testing
+    checkpoint_path = os.path.join(args.ckpt_dir, 'Relight', 'RetinexNet-Relight_epoch_99.pth')  # Adjust the path if necessary
+    if not os.path.exists(checkpoint_path):
+        print(f"[!] Checkpoint {checkpoint_path} not found.")
+        exit(0)
+
+    print(f"[*] Loading model from checkpoint {checkpoint_path}")
+
+    # Load only the model's state_dict
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    LowlightEnhance.load_state_dict(checkpoint)  # This loads the state_dict into your model
+
+        
+    # Load test data
+    test_low_data_name = glob(os.path.join(args.test_dir)+ '/*.*')
     test_low_data = []
-    test_high_data = []
+    test_high_data = []  # You can load high data here if needed for any additional processing
+
     for idx in range(len(test_low_data_name)):
         test_low_im = load_images(test_low_data_name[idx])
         test_low_data.append(test_low_im)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- 
-
-
+    # Test the model with the loaded checkpoint
     LowlightEnhance.test(test_low_data, test_high_data, test_low_data_name, save_dir=args.save_dir, decom_flag=args.decom)
-
 
 def main():
     device = torch.device(f'cuda:{args.gpu_idx}' if args.use_gpu and torch.cuda.is_available() else 'cpu')
