@@ -17,7 +17,7 @@ parser = argparse.ArgumentParser(description='')
 
 parser.add_argument('--use_gpu', dest='use_gpu', type=int, default=1, help='gpu flag, 1 for GPU and 0 for CPU')
 parser.add_argument('--gpu_idx', dest='gpu_idx', default="0", help='GPU idx')
-parser.add_argument('--gpu_mem', dest='gpu_mem', type=float, default=0.5, help="0 to 1, gpu memory usage")
+parser.add_argument('--gpu_mem', dest='gpu_mem', type=float, default=0.9, help="0 to 1, gpu memory usage")
 parser.add_argument('--phase', dest='phase', default='train', help='train or test')
 
 parser.add_argument('--epoch', dest='epoch', type=int, default=100, help='number of total epoches')
@@ -121,10 +121,7 @@ def lowlight_test(LowlightEnhance, device):
 
 
 
-
-
-
-
+ 
 
 
     LowlightEnhance.test(test_low_data, test_high_data, test_low_data_name, save_dir=args.save_dir, decom_flag=args.decom)
