@@ -24,7 +24,7 @@ parser.add_argument('--epoch', dest='epoch', type=int, default=100, help='number
 parser.add_argument('--batch_size', dest='batch_size', type=int, default=16, help='number of samples in one batch')
 parser.add_argument('--patch_size', dest='patch_size', type=int, default=48, help='patch size')
 parser.add_argument('--start_lr', dest='start_lr', type=float, default=0.001, help='initial learning rate for adam')
-parser.add_argument('--eval_every_epoch', dest='eval_every_epoch', default=20, help='evaluating and saving checkpoints every #  epoch')
+parser.add_argument('--eval_every_epoch', dest='eval_every_epoch', default=1, help='evaluating and saving checkpoints every #  epoch')
 parser.add_argument('--checkpoint_dir', dest='ckpt_dir', default='./checkpoint', help='directory for checkpoints')
 parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help='directory for evaluating outputs')
 
@@ -33,7 +33,6 @@ parser.add_argument('--test_dir', dest='test_dir', default='./data/test/low', he
 parser.add_argument('--decom', dest='decom', default=0, help='decom flag, 0 for enhanced results only and 1 for decomposition results')
 
 args = parser.parse_args()
-
 def lowlight_train(LowlightEnhance, device):
     if not os.path.exists(args.ckpt_dir):
         os.makedirs(args.ckpt_dir)
@@ -58,7 +57,7 @@ def lowlight_train(LowlightEnhance, device):
         train_low_data.append(low_im)
         high_im = load_images(train_high_data_names[idx])
         train_high_data.append(high_im)
-
+    print(f"low image shape :{low_im.shape}")
     eval_low_data = []
     eval_high_data = []
 
@@ -87,6 +86,46 @@ def lowlight_test(LowlightEnhance, device):
     for idx in range(len(test_low_data_name)):
         test_low_im = load_images(test_low_data_name[idx])
         test_low_data.append(test_low_im)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     LowlightEnhance.test(test_low_data, test_high_data, test_low_data_name, save_dir=args.save_dir, decom_flag=args.decom)
 

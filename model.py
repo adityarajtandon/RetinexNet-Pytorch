@@ -12,7 +12,15 @@ from PIL import Image
 from utils import *
 
 def concat(layers):
-    return torch.cat(layers, dim=1) 
+    # Print the shape of each tensor in the lis
+    # Concatenate the tensors along the channel dimension (dim=1)
+    a = torch.cat(layers, dim=1)
+
+    # Print the shape of the concatenated result
+
+    return a
+
+
 
 class DecomNet(nn.Module):
     def __init__(self, layer_num, channel=64, kernel_size=3):
@@ -23,6 +31,7 @@ class DecomNet(nn.Module):
         self.recon_layers = nn.Conv2d(channel, 4, kernel_size=kernel_size, padding=kernel_size//2)
 
     def forward(self, input_im):
+        print(f"{input_im.shape}")
         input_max, _ = torch.max(input_im, dim=1, keepdim=True)
         # print(f"Input max shape: {input_max.shape}")
         input_im = concat([input_im, input_max])
@@ -168,18 +177,35 @@ class LowlightEnhance(nn.Module):
         return torch.mean(self.gradient(input_I, "x") * torch.exp(-10 * self.ave_gradient(input_R_gray, "x")) +
                           self.gradient(input_I, "y") * torch.exp(-10 * self.ave_gradient(input_R_gray, "y")))
 
+  
     def evaluate(self, epoch_num, eval_low_data, sample_dir, train_phase):
         print(f"[*] Evaluating for phase {train_phase} / epoch {epoch_num}...")
 
         for idx, input_low_eval in enumerate(eval_low_data):
-            input_low_eval = torch.unsqueeze(input_low_eval, 0)
+            # Check if input_low_eval is grayscale (2D) or RGB (3D)
+            if len(input_low_eval.shape) == 2:
+                # Grayscale: expand dims to make it [1, height, width]
+                input_low_eval = np.expand_dims(input_low_eval, axis=0)
+            elif len(input_low_eval.shape) == 3:
+                # RGB: transpose to [channels, height, width]
+                input_low_eval = np.transpose(input_low_eval, (2, 0, 1))
+            else:
+                raise ValueError(f"Unexpected input shape: {input_low_eval.shape}")
 
+            # Convert to a PyTorch tensor and add a batch dimension [batch_size, channels, height, width]
+            input_low_eval = torch.from_numpy(np.expand_dims(input_low_eval, axis=0)).float()
+
+            # Process based on the training phase
             if train_phase == "Decom":
                 result_1, result_2 = self(input_low_eval, input_low_eval)[:2]
-            if train_phase == "Relight":
+            elif train_phase == "Relight":
                 result_1, result_2 = self(input_low_eval, input_low_eval)[2:]
+            else:
+                raise ValueError(f"Unknown training phase: {train_phase}")
 
+            # Save the results
             save_images(os.path.join(sample_dir, f'eval_{train_phase}_{idx + 1}_{epoch_num}.png'), result_1, result_2)
+
 
     def train_model(self, train_low_data, train_high_data, eval_low_data, batch_size, patch_size, epoch, lr, sample_dir, ckpt_dir, eval_every_epoch, train_phase):
         # Optimizer
