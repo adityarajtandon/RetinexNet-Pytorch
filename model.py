@@ -15,94 +15,116 @@ def concat(layers):
     return torch.cat(layers, dim=1) 
 
 class DecomNet(nn.Module):
-    def __init__(self,layer_num,channel=64,kernel_size=3):
+    def __init__(self, layer_num, channel=64, kernel_size=3):
         super(DecomNet, self).__init__()
         self.layer_num = layer_num
-        self.shallow_feature_extraction=nn.Conv2d(4,channel,kernel_size=kernel_size*3,padding=kernel_size//2)
-        self.activated_layers = nn.ModuleList([nn.Conv2d(channel,channel,kernel_size=kernel_size,padding=kernel_size//2) for i in range(layer_num)])
-        self.recon_layers=nn.Conv2d(channel,4,kernel_size=kernel_size,padding=kernel_size//2)
-    def forward(self,input_im):
-        input_max, _ = torch.max(input_im, dim=1, keepdim=True) #1*3*256*256
-        input_im = concat([input_im, input_max]) #1*4*256*256
-        conv=self.shallow_feature_extraction(input_im) #1*64*256*256
+        self.shallow_feature_extraction = nn.Conv2d(4, channel, kernel_size=kernel_size*3, padding=(kernel_size*3)//2)
+        self.activated_layers = nn.ModuleList([nn.Conv2d(channel, channel, kernel_size=kernel_size, padding=kernel_size//2) for i in range(layer_num)])
+        self.recon_layers = nn.Conv2d(channel, 4, kernel_size=kernel_size, padding=kernel_size//2)
+
+    def forward(self, input_im):
+        input_max, _ = torch.max(input_im, dim=1, keepdim=True)
+        # print(f"Input max shape: {input_max.shape}")
+        input_im = concat([input_im, input_max])
+       #  print(f"Concatenated input shape: {input_im.shape}")
+
+        conv = self.shallow_feature_extraction(input_im)
+       #  print(f"Shallow feature extraction shape: {conv.shape}")
         for i in range(self.layer_num):
             conv = F.relu(self.activated_layers[i](conv))
-        conv=self.recon_layers(conv)
-        R=torch.sigmoid(conv[:,0:3,:,:])
-        L=torch.sigmoid(conv[:,3:4,:,:])
-        return R,L
+           #  print(f"Conv layer {i+1} shape: {conv.shape}")
+
+        conv = self.recon_layers(conv)
+      #   print(f"Reconstruction layer shape: {conv.shape}")
+
+        R = torch.sigmoid(conv[:, 0:3, :, :])
+        L = torch.sigmoid(conv[:, 3:4, :, :])
+       #  print(f"Reflectance (R) shape: {R.shape}, Illumination (L) shape: {L.shape}")
+        return R, L
+
 
 class RelightNet(nn.Module):
     def __init__(self, channel=64, kernel_size=3):
         super(RelightNet, self).__init__()
-        # Convolutional layers for down-sampling (encoding)
         self.conv0 = nn.Conv2d(4, channel, kernel_size, padding=kernel_size // 2)
         self.conv1 = nn.Conv2d(channel, channel, kernel_size, stride=2, padding=kernel_size // 2)
         self.conv2 = nn.Conv2d(channel, channel, kernel_size, stride=2, padding=kernel_size // 2)
         self.conv3 = nn.Conv2d(channel, channel, kernel_size, stride=2, padding=kernel_size // 2)
-        # Deconvolutional layers for up-sampling (decoding)
         self.deconv1 = nn.Conv2d(channel, channel, kernel_size, padding=kernel_size // 2)
         self.deconv2 = nn.Conv2d(channel, channel, kernel_size, padding=kernel_size // 2)
         self.deconv3 = nn.Conv2d(channel, channel, kernel_size, padding=kernel_size // 2)
-        # Fusion layer to combine features from different levels
         self.feature_fusion = nn.Conv2d(channel * 3, channel, 1, padding=0)
-        # Output layer to generate the final enhanced illumination map
         self.output_layer = nn.Conv2d(channel, 1, 3, padding=1)
 
     def forward(self, input_L, input_R):
-        # Concatenate reflectance map and illumination map
         input_im = concat([input_R, input_L])
-        # Encoding path: apply down-sampling convolutions
+       #  print(f"RelightNet input shape: {input_im.shape}")
+
         conv0 = self.conv0(input_im)
+       #  print(f"Conv0 shape: {conv0.shape}")
         conv1 = F.relu(self.conv1(conv0))
+        # print(f"Conv1 shape: {conv1.shape}")
         conv2 = F.relu(self.conv2(conv1))
+        # print(f"Conv2 shape: {conv2.shape}")
         conv3 = F.relu(self.conv3(conv2))
-        # Decoding path: up-sample and combine with previous layers
+        #  print(f"Conv3 shape: {conv3.shape}")
+
         up1 = F.interpolate(conv3, size=(conv2.shape[2], conv2.shape[3]), mode='nearest')
+        # print(f"Up-sampled conv3 shape: {up1.shape}")
         deconv1 = F.relu(self.deconv1(up1) + conv2)
+        # print(f"Deconv1 shape: {deconv1.shape}")
         up2 = F.interpolate(deconv1, size=(conv1.shape[2], conv1.shape[3]), mode='nearest')
+       #  print(f"Up-sampled deconv1 shape: {up2.shape}")
         deconv2 = F.relu(self.deconv2(up2) + conv1)
+        # print(f"Deconv2 shape: {deconv2.shape}")
         up3 = F.interpolate(deconv2, size=(conv0.shape[2], conv0.shape[3]), mode='nearest')
+        # print(f"Up-sampled deconv2 shape: {up3.shape}")
         deconv3 = F.relu(self.deconv3(up3) + conv0)
-        
-        # Resize feature maps to match the output size and concatenate
+       #  print(f"Deconv3 shape: {deconv3.shape}")
+
         deconv1_resize = F.interpolate(deconv1, size=(deconv3.shape[2], deconv3.shape[3]), mode='nearest')
         deconv2_resize = F.interpolate(deconv2, size=(deconv3.shape[2], deconv3.shape[3]), mode='nearest')
+        # print(f"Deconv1 resize shape: {deconv1_resize.shape}")
+       #  print(f"Deconv2 resize shape: {deconv2_resize.shape}")
+
         feature_gather = concat([deconv1_resize, deconv2_resize, deconv3])
-        # Fuse features from different levels
+       #  print(f"Feature gather shape: {feature_gather.shape}")
         feature_fusion = self.feature_fusion(feature_gather)
-        # Generate the enhanced illumination map
+       #  print(f"Feature fusion shape: {feature_fusion.shape}")
         output = self.output_layer(feature_fusion)
+        # print(f"RelightNet output shape: {output.shape}")
         return output
 
 class LowlightEnhance(nn.Module):
     def __init__(self):
         super(LowlightEnhance, self).__init__()
-        # Number of layers for DecomNet
         self.DecomNet_layer_num = 5
-        # Initialize DecomNet and RelightNet
         self.DecomNet = DecomNet(layer_num=self.DecomNet_layer_num)
         self.RelightNet = RelightNet()
 
     def forward(self, input_low, input_high):
-        # Decomposition
+       #  print(f"Input low shape: {input_low.shape}, Input high shape: {input_high.shape}")
         R_low, I_low = self.DecomNet(input_low)
+       #  print(f"R_low shape: {R_low.shape}, I_low shape: {I_low.shape}")
         R_high, I_high = self.DecomNet(input_high)
+       #  print(f"R_high shape: {R_high.shape}, I_high shape: {I_high.shape}")
 
-        # Relight
         I_delta = self.RelightNet(I_low, R_low)
+        # print(f"I_delta shape: {I_delta.shape}")
 
-        # Concatenate channels
-        I_low_3 = torch.cat([I_low, I_low, I_low], dim=1)
-        I_high_3 = torch.cat([I_high, I_high, I_high], dim=1)
-        I_delta_3 = torch.cat([I_delta, I_delta, I_delta], dim=1)
+        I_low_3 = concat([I_low, I_low, I_low])
+        I_high_3 = concat([I_high, I_high, I_high])
+        I_delta_3 = concat([I_delta, I_delta, I_delta])
+       #  print(f"I_low_3 shape: {I_low_3.shape}, I_high_3 shape: {I_high_3.shape}, I_delta_3 shape: {I_delta_3.shape}")
 
         output_R_low = R_low
         output_I_low = I_low_3
         output_I_delta = I_delta_3
         output_S = R_low * I_delta_3
+       #  print(f"Output S shape: {output_S.shape}")
 
         return output_R_low, output_I_low, output_I_delta, output_S, R_high, I_high_3, I_low, I_high, I_delta
+
 
     def loss(self, input_low, input_high, output_R_low, output_I_low, output_I_delta, output_S, R_high, I_high_3,I_low, I_high, I_delta):
         # Loss calculations
@@ -129,7 +151,7 @@ class LowlightEnhance(nn.Module):
 
     def gradient(self, input_tensor, direction):
         smooth_kernel_x = torch.Tensor([[0, 0], [-1, 1]]).unsqueeze(0).unsqueeze(0).to(input_tensor.device)
-        smooth_kernel_y = smooth_kernel_x.transpose(1, 2)
+        smooth_kernel_y = smooth_kernel_x.transpose(2,3)
 
         if direction == "x":
             kernel = smooth_kernel_x
@@ -161,7 +183,7 @@ class LowlightEnhance(nn.Module):
 
     def train_model(self, train_low_data, train_high_data, eval_low_data, batch_size, patch_size, epoch, lr, sample_dir, ckpt_dir, eval_every_epoch, train_phase):
         # Optimizer
-        optimizer = optim.Adam(self.parameters(), lr=lr)
+        optimizer = optim.Adam(self.parameters(), lr=lr[0])
 
         print(f"[*] Start training for phase {train_phase}.")
 
@@ -169,7 +191,9 @@ class LowlightEnhance(nn.Module):
         image_id = 0
 
         for epoch in range(epoch):
+            self.lr=lr[epoch]
             for batch_id in range(len(train_low_data) // batch_size):
+                
                 # Generate data for a batch
                 batch_input_low = torch.zeros(batch_size, 3, patch_size, patch_size)
                 batch_input_high = torch.zeros(batch_size, 3, patch_size, patch_size)
@@ -180,9 +204,9 @@ class LowlightEnhance(nn.Module):
                     y = random.randint(0, w - patch_size)
 
                     rand_mode = random.randint(0, 7)
-                    batch_input_low[patch_id, :, :, :] = data_augmentation(train_low_data[image_id][x:x + patch_size, y:y + patch_size, :], rand_mode)
-                    batch_input_high[patch_id, :, :, :] = data_augmentation(train_high_data[image_id][x:x + patch_size, y:y + patch_size, :], rand_mode)
-
+                    batch_input_low[patch_id, :, :, :] = torch.from_numpy(data_augmentation(train_low_data[image_id][x:x + patch_size, y:y + patch_size, :], rand_mode).copy().transpose(2, 0, 1)).float()
+                    batch_input_high[patch_id, :, :, :] = torch.from_numpy(data_augmentation(train_high_data[image_id][x:x + patch_size, y:y + patch_size, :], rand_mode).copy().transpose(2, 0, 1)).float()
+                    
                     image_id = (image_id + 1) % len(train_low_data)
                     if image_id == 0:
                         tmp = list(zip(train_low_data, train_high_data))
@@ -190,7 +214,7 @@ class LowlightEnhance(nn.Module):
                         train_low_data, train_high_data = zip(*tmp)
 
                 optimizer.zero_grad()
-
+                
                 output_R_low, output_I_low, output_I_delta, output_S, R_high, I_high_3, I_low, I_high, I_delta = self(batch_input_low, batch_input_high)
                 loss_Decom, loss_Relight = self.loss(batch_input_low, batch_input_high, output_R_low, output_I_low, output_I_delta, output_S, R_high, I_high_3,I_low, I_high, I_delta)
 
